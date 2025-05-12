@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq" // PostgreSQL driver
@@ -12,9 +11,12 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strings"
+	"time"
 )
 
 const (
+	dryRun        = true
 	statusConnStr = "user=myuser password=mypassword dbname=controlstatus sslmode=disable"
 	codexConnStr  = "user=myuser password=mypassword dbname=codex sslmode=disable"
 	baseURL       = "https://australia-southeast1-anz-x-xplore-staging-1bbe6e.cloudfunctions.net/xp-cf-xplore-api"
@@ -40,39 +42,48 @@ type MigrationMapData struct {
 
 func main() {
 	mapping := getDataFromCsv()
-	processedMap := processMappingData(mapping)
+	acIDMap := makeACIDMap(mapping)
 	acIDs := readACIDs()
-	verifyMappingData(processedMap, acIDs)
-
+	verifyMappingData(acIDMap, acIDs)
 	assetIDs := readAssetIDs()
-	migrate(assetIDs, processedMap)
+
+	now := time.Now()
+	fmt.Printf("Start time: %s\n", now.Format(time.RFC3339))
+	migrate(assetIDs, acIDMap)
+	fmt.Printf("Migration took: %s\n", time.Since(now))
 }
 
-func migrate(assetIDs []string, processedMap map[key][]key) {
+func migrate(assetIDs []string, processedMap map[string][]string) {
 	client := &http.Client{}
 	evidenceCreated := 0
+	requiredCreate := 0
 	for _, assetID := range assetIDs {
-		for sourceKey, targetKeys := range processedMap {
-			evidences := readEvidences(assetID, sourceKey.acID)
+		for sourceAC, targetACs := range processedMap {
+			evidences := readEvidences(assetID, sourceAC)
 			if len(evidences) == 0 {
 				continue
 			}
-			for _, target := range targetKeys {
+			for _, targetAC := range targetACs {
 				for _, evidence := range evidences {
+					requiredCreate++
+					if dryRun {
+						continue
+					}
 					updatedEvidence := evidence
-					updatedEvidence.ControlId = target.controlID
-					updatedEvidence.ControlComponentId = target.acID
+					updatedEvidence.ControlId = getControlID(targetAC)
+					updatedEvidence.ControlComponentId = targetAC
 					err := createEvidence(client, updatedEvidence)
 					if err != nil {
-						fmt.Printf("Error creating evidence for asset %s, ac %s: %v\n", assetID, target.acID, err)
+						fmt.Printf("Error creating evidence for asset %s, ac %s: %v\n", assetID, targetAC, err)
 						continue
 					}
 					evidenceCreated++
-					fmt.Printf("Evidence created for asset %s, ac %s\n", assetID, target.acID)
+					fmt.Printf("Evidence created for asset %s, ac %s\n", assetID, targetAC)
 				}
 			}
 		}
 	}
+	fmt.Printf("Total evidences created: %d, total required: %d\n", evidenceCreated, requiredCreate)
 }
 
 func getDataFromCsv() []MigrationMapData {
@@ -106,19 +117,14 @@ func getDataFromCsv() []MigrationMapData {
 	return results
 }
 
-func verifyMappingData(data map[key][]key, acIDs []string) {
+func verifyMappingData(data map[string][]string, acIDs []string) {
 	// one evidence can be mapped to multiple tcl
 	// not more than one tcl evidence should be created
 	// ac must exist
-	counter := make(map[key]int)
-	for _, item := range data {
-		for _, targetKey := range item {
-			counter[targetKey]++
-			if counter[targetKey] > 1 {
-				panic(errors.New("duplicate target control and ac found"))
-			}
-			if !slices.Contains(acIDs, targetKey.acID) {
-				panic(fmt.Errorf("invalid ac ID found: %s", targetKey.acID))
+	for _, targetACs := range data {
+		for _, targetAC := range targetACs {
+			if !slices.Contains(acIDs, targetAC) {
+				panic(fmt.Errorf("invalid ac ID found: %s", targetAC))
 			}
 
 		}
@@ -208,18 +214,6 @@ func readACIDs() []string {
 	return result
 }
 
-func processMappingData(mapping []MigrationMapData) map[key][]key {
-	results := make(map[key][]key)
-	for _, data := range mapping {
-		sourceACID := data.SourceControlID + "." + data.SourceACID
-		sourceKey := key{data.SourceControlID, sourceACID}
-		targetACID := data.TargetControlID + "." + data.TargetACID
-		targetKey := key{data.TargetControlID, targetACID}
-		results[sourceKey] = append(results[sourceKey], targetKey)
-	}
-	return results
-}
-
 func createEvidence(client *http.Client, evidence Evidence) error {
 	url := baseURL + evidencePath
 
@@ -286,4 +280,18 @@ func sendGET[T any](client *http.Client, url string) (*T, error) {
 	}
 
 	return &result, nil
+}
+
+func getControlID(acID string) string {
+	return strings.Split(acID, ".")[0]
+}
+
+func makeACIDMap(data []MigrationMapData) map[string][]string {
+	acIDMap := make(map[string][]string)
+	for _, item := range data {
+		sourceACID := item.SourceControlID + "." + item.SourceACID
+		targetACID := item.TargetControlID + "." + item.TargetACID
+		acIDMap[sourceACID] = append(acIDMap[sourceACID], targetACID)
+	}
+	return acIDMap
 }
