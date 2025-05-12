@@ -119,12 +119,16 @@ func verifyMappingData(data map[string][]string, acIDs []string) {
 	// one evidence can be mapped to multiple tcl
 	// not more than one tcl evidence should be created
 	// ac must exist
+	counter := make(map[string]int)
 	for _, targetACs := range data {
 		for _, targetAC := range targetACs {
 			if !slices.Contains(acIDs, targetAC) {
 				panic(fmt.Errorf("invalid ac ID found: %s", targetAC))
 			}
-
+			counter[targetAC]++
+			if counter[targetAC] > 1 {
+				panic(fmt.Errorf("multiple evidences found for ac ID: %s", targetAC))
+			}
 		}
 	}
 	fmt.Println("mapping data is valid")
