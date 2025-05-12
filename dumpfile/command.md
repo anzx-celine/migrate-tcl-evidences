@@ -8,7 +8,7 @@ docker run --name db-prod \
 ```
 
 ```bash
-#docker exec -it db-prod psql -U myuser -d controlstatus -c "CREATE DATABASE codex;" && \
+#docker exec -it db-prod psql -U myuser -d codex -c "CREATE DATABASE codex;" && \
 docker cp codex.sql db-prod:/codex.sql && \
 docker exec -i db-prod psql -U myuser -d codex -f /codex.sql
 ```
@@ -17,12 +17,6 @@ docker exec -i db-prod psql -U myuser -d codex -f /codex.sql
 docker exec -it db-prod psql -U myuser -d codex -c "CREATE DATABASE controlstatus;" && \
 docker cp controlstatus.sql db-prod:/controlstatus.sql && \
 docker exec -i db-prod psql -U myuser -d controlstatus -f /controlstatus.sql
-```
-
-```bash
-docker exec -it db-prod psql -U myuser -d codex -c "CREATE DATABASE outcomestore;" && \
-docker cp outcomestore.sql db-prod:/outcomestore.sql && \
-docker exec -i db-prod psql -U myuser -d outcomestore -f /outcomestore.sql
 ```
 
 ```bash

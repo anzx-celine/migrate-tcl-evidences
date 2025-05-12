@@ -27,3 +27,4 @@ go.work.sum
 # exclude dump
 *.sql
 .idea/*
+/xplore-pkg/
