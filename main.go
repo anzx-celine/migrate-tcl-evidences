@@ -189,6 +189,7 @@ func getIDsFromCodex(query, key string) []string {
 }
 
 func createEvidence(client *http.Client, evidence Evidence) error {
+	fmt.Printf("Creating evidence for asset %s, ac %s\n", evidence.AssetId, evidence.ControlComponentId)
 	url := baseURL + evidencePath
 
 	resp, err := sendPOSTRequest(client, url, evidence)
