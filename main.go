@@ -25,6 +25,8 @@ const (
 	assetsPath   = "/api/v1/assets"
 	gciPath      = "/api/v1/generic-control-instances/"
 	evidencePath = "/api/v1/evidence"
+	assetIDQuery = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id;`
+	acIDQuery    = `select internal_id from codex_acceptance_criterion where internal_id like 'CTOB%';`
 	token        = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImUxNGMzN2Q2ZTVjNzU2ZThiNzJmZGI1MDA0YzBjYzM1NjMzNzkyNGUiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOiIzMjU1NTk0MDU1OS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbSIsImF6cCI6IjEwNzgyNDY5NTM0ODI3NzEyNzI2MCIsImVtYWlsIjoieHAtc2EteHBsb3JlLXRjbHN5bmNAYW56LXgteHBsb3JlLXN0YWdpbmctMWJiZTZlLmlhbS5nc2VydmljZWFjY291bnQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc0NzA1NjY4NiwiaWF0IjoxNzQ3MDUzMDg2LCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJzdWIiOiIxMDc4MjQ2OTUzNDgyNzcxMjcyNjAifQ.hpWJrHI9qzxfwjZL1QwLDJUHzYk4jd8ly8tpM52Y0N3CCLC3oDdJfJlA_9Y4uy2l7Uk46c8EhuVK2yN_clG4YjULtrkEX5OQcOPkzwdTBu_FvS-Z4jLscuHOBe_ir_-Jee3J40VwrbXVPIEEo9H_SwJDamT0cqEXZjmde3DlLYeSg-jFmkZ7Kwp3-6Pqzb9senJj3QYBA0bs0qq1MlUw0bC8hcwRLrZMnIWLvJhQMDa2ZAG8DhYpEOg7S2po6qBOM5FmiTEUryUUg00Ri0KXdSQ4_mtiGRydQ4gp7ym7Vxwg3jwPOLJ_P6F3UNrz52iyv5Z-Sdl4WnDrH4Q3-m4szQ"
 )
 
@@ -38,9 +40,9 @@ type MigrationMapData struct {
 func main() {
 	mapping := getDataFromCsv()
 	acIDMap := makeACIDMap(mapping)
-	acIDs := readACIDs()
+	acIDs := getIDsFromCodex(acIDQuery, "internal_id")
 	verifyMappingData(acIDMap, acIDs)
-	assetIDs := readAssetIDs()
+	assetIDs := getIDsFromCodex(assetIDQuery, "asset_id")
 
 	now := time.Now()
 	fmt.Printf("Start time: %s\n", now.Format(time.RFC3339))
@@ -161,14 +163,14 @@ WHERE
 	return results
 }
 
-func readAssetIDs() []string {
+func getIDsFromCodex(query, key string) []string {
 	db, err := sqlx.Open("postgres", codexConnStr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	rows, err := db.Queryx("select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id;")
+	rows, err := db.Queryx(query)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -180,31 +182,7 @@ func readAssetIDs() []string {
 		if err := rows.MapScan(row); err != nil {
 			log.Fatalln(err)
 		}
-		result = append(result, row["asset_id"].(string))
-	}
-	return result
-}
-
-func readACIDs() []string {
-	db, err := sqlx.Open("postgres", codexConnStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	rows, err := db.Queryx("select internal_id from codex_acceptance_criterion where internal_id like 'CTOB%';")
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer rows.Close()
-
-	result := make([]string, 0)
-	for rows.Next() {
-		row := make(map[string]interface{})
-		if err := rows.MapScan(row); err != nil {
-			log.Fatalln(err)
-		}
-		result = append(result, row["internal_id"].(string))
+		result = append(result, row[key].(string))
 	}
 	return result
 }
