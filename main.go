@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	assetIDQuery = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id limit 10 offset 30;`
+	assetIDQuery = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id limit 10 offset 40;`
 	dryRun       = false
-	token        = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjY2MGVmM2I5Nzg0YmRmNTZlYmU4NTlmNTc3ZjdmYjJlOGMxY2VmZmIiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOiIzMjU1NTk0MDU1OS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbSIsImF6cCI6IjExNDA2MjgwNzcyNjE2MTMyMTk3MCIsImVtYWlsIjoieHAtc2EteHBsb3JlLXRjbHN5bmNAYW56LXgteHBsb3JlLXByb2QtNDRmNTk3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc0NzY2NTE4OCwiaWF0IjoxNzQ3NjYxNTg4LCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJzdWIiOiIxMTQwNjI4MDc3MjYxNjEzMjE5NzAifQ.GckLzxDnpdsNBHIJbEiw67YPVAKcod1bMnDLseS9ItdABk5KYkzw8uI6Q_V5Ol170p8R0N9ARMjwvuGaY9qrbFs9dtGTJ4suZOCHoe6KOISngo9p2rM1pls3tjqQpUjp_QXBMxuNvuVmlQmBLQd7csw2WtWxbrX9kUhGYV2o5aK8QEuKxaexmtR9jSWywPav42_hmSuv6Red8JhFXvnKN3w5m1Xtssf_2ivnQOF-LSZ-NLNhAecNhV_dBxOJl-OCA6kREEE6MtbXiMWSua81MJpxTGeAjSS1M0gn4aluMzWXU1fC0M8uX2D2oI9boA7J2Bs18RDqZLgF37Gpp85J0w"
+	token        = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjY2MGVmM2I5Nzg0YmRmNTZlYmU4NTlmNTc3ZjdmYjJlOGMxY2VmZmIiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOiIzMjU1NTk0MDU1OS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbSIsImF6cCI6IjExNDA2MjgwNzcyNjE2MTMyMTk3MCIsImVtYWlsIjoieHAtc2EteHBsb3JlLXRjbHN5bmNAYW56LXgteHBsb3JlLXByb2QtNDRmNTk3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc0NzY2NjUwMSwiaWF0IjoxNzQ3NjYyOTAxLCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJzdWIiOiIxMTQwNjI4MDc3MjYxNjEzMjE5NzAifQ.e3HY9whBDs5YN-M0z7_s9alGGPsovDdmqCg_pWNvQ4g3YVYyOWLIve_sZROblb-Ox84kPI7_4ogaU4M2f9Ilcvb846TEoqRJKphdFblETET99eVr7RXS3s077-MocCOhfnUpAEGovPqKCewhWdybJH33puFM2aUyCyT_ngw5Smq5Kcp4rvRqzvGTzLIg-6aGnr9NwWxczW_ZMjBcjbMNLyqxBTk95Qd9m9SSozxX7x9qh92sz1M-RqVE9B4iuLXFQ6Am1avEpz4FyNxP9z4oj3F4B3HAlYAFdWVOVDUFEoCiPPnnfNIICi3gMbmQ4Ao0uz_3Y1sUFrYUpoCAmvWPig"
 )
 
 const (
@@ -255,7 +255,7 @@ func sendPOSTRequest[T any](client *http.Client, url string, payload T) (*http.R
 	}
 
 	var resp *http.Response
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= 4; attempt++ {
 		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
@@ -277,6 +277,7 @@ func sendPOSTRequest[T any](client *http.Client, url string, payload T) (*http.R
 		resp.Body.Close()
 
 		// Exponential backoff
+		slog.Info("retrying request", slog.Int("attempt", attempt))
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 
