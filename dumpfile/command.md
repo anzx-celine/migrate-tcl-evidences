@@ -24,5 +24,5 @@ docker exec -it db-prod psql -U myuser -d codex -c "\l"
 ```
 
 ```bash
-docker exec -it db-prod psql -U myuser -d postgres -c "DROP DATABASE codex;"
+docker exec -it db-prod psql -U myuser -d postgres -c "DROP DATABASE controlstatus;"
 ```
