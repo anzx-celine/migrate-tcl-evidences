@@ -1,3 +1,9 @@
+# Xplore Evidence Migration
+# ===========================
+This is a one time migration script to migrate evidence from the old Xplore system to the new one. It is designed to be run in both staging and production environments.
+
+Code is not perfect and may require some manual intervention as this only runs on my local machine.
+
 # migrate-tcl-evidences
 resolves https://jira.anzx.service.anz/browse/ANZX-222305
 

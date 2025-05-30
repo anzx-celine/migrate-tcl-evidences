@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	assetIDQuery = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id limit 25 offset 155;`
+	assetIDQuery = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id;`
 	dryRun       = false
-	token        = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjY2MGVmM2I5Nzg0YmRmNTZlYmU4NTlmNTc3ZjdmYjJlOGMxY2VmZmIiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOiIzMjU1NTk0MDU1OS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbSIsImF6cCI6IjExNDA2MjgwNzcyNjE2MTMyMTk3MCIsImVtYWlsIjoieHAtc2EteHBsb3JlLXRjbHN5bmNAYW56LXgteHBsb3JlLXByb2QtNDRmNTk3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc0NzcxNjEyNywiaWF0IjoxNzQ3NzEyNTI3LCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJzdWIiOiIxMTQwNjI4MDc3MjYxNjEzMjE5NzAifQ.ZPm6I7xLx8G8JImTe9Vnvz-RHOX56Ptm-qmNgT5kecgC3VsjpRaVBLbM1b_0ts32y4BmyvXGWBCdIXCpm5UqroUafgqgmzK9cwB6oJ8mz0r-a05c2tmhj2f657zjAmETuk8Fuc5TUL_2dNWliiHzYfbxps_Uhw0_7ePhyukLsUymhsgOJzWiCEJver7f_GPf71edG53bhg1XZIUhhMzq57kkd1-HI8Wds9YogtKb7Z6U3zLgLdaSyri6cxy0Kub8-pCJ6gAyyaOz5YOFysxj70_AjzLFaKZzAMwnSXuc3flqfsyorJfz8CBj7km1Z1vjm9C8IaH824PDhvg3stXHUw"
+	token        = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjY2MGVmM2I5Nzg0YmRmNTZlYmU4NTlmNTc3ZjdmYjJlOGMxY2VmZmIiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOiIzMjU1NTk0MDU1OS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbSIsImF6cCI6IjExNDA2MjgwNzcyNjE2MTMyMTk3MCIsImVtYWlsIjoieHAtc2EteHBsb3JlLXRjbHN5bmNAYW56LXgteHBsb3JlLXByb2QtNDRmNTk3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc0NzcyMzcyNSwiaWF0IjoxNzQ3NzIwMTI1LCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJzdWIiOiIxMTQwNjI4MDc3MjYxNjEzMjE5NzAifQ.TxN_M-jpsuNXa6YE8ArxcXrxtfbmyqsIhPBPbVXnG1dQs54qDGzb_dHWkwmKRUC-L29akwG8M-MyHfdWUm64a93QYevolb9WjRJI2Eg5v07t7QgIINTSk6ff6TywAyO_ClQ_qgrJRaPa6jLpIiLiJTVknVYprawwvDmyZTvnsYpZZCOj3i1YlDTcdZX3g8i3w7a8S4gp_1mIbspHTr7Ht34_GOJ07stL_jnuffAocyhMPQm0CT6O559P7Uvqo2GrKUI3fb7jPnoXQBdk6J6-i2Q2SFsJydKtqRXniYyUbpraBbZMdF3RSpUFOWvqL9oO3sco8K5cOCpJOPOhrjX7iQ"
 )
 
 const (
@@ -62,14 +62,17 @@ func main() {
 	verifyMappingData(acIDMap, acIDs)
 
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, 20) // Limit concurrency to 20
 
 	assetIDs := getIDsFromCodex(assetIDQuery, "asset_id")
 	slog.Info("start migrating evidences", slog.Any("assetIDs", assetIDs))
 
 	for _, assetID := range assetIDs {
+		sem <- struct{}{} // Acquire a slot
 		wg.Add(1)
 		go func(assetID string) {
 			defer wg.Done()
+			defer func() { <-sem }() // Release the slot
 			migrate(assetID, acIDMap)
 		}(assetID)
 	}
@@ -195,7 +198,8 @@ JOIN
 ON 
     e.generic_control_status_id = s.id
 WHERE 
-    e.bot_id = '' 
+    e.bot_id = ''
+  	AND ((e.updated_at >= '2025-05-05' or e.created_at >= '2025-05-05'))
     AND s.asset_id = $1 
     AND e.control_component_id = $2;
 `
