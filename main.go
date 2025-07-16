@@ -19,19 +19,11 @@ import (
 )
 
 const (
-	assetIDQuery = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id;`
-	dryRun       = false
-	token        = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjY2MGVmM2I5Nzg0YmRmNTZlYmU4NTlmNTc3ZjdmYjJlOGMxY2VmZmIiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOiIzMjU1NTk0MDU1OS5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbSIsImF6cCI6IjExNDA2MjgwNzcyNjE2MTMyMTk3MCIsImVtYWlsIjoieHAtc2EteHBsb3JlLXRjbHN5bmNAYW56LXgteHBsb3JlLXByb2QtNDRmNTk3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc0NzcyMzcyNSwiaWF0IjoxNzQ3NzIwMTI1LCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJzdWIiOiIxMTQwNjI4MDc3MjYxNjEzMjE5NzAifQ.TxN_M-jpsuNXa6YE8ArxcXrxtfbmyqsIhPBPbVXnG1dQs54qDGzb_dHWkwmKRUC-L29akwG8M-MyHfdWUm64a93QYevolb9WjRJI2Eg5v07t7QgIINTSk6ff6TywAyO_ClQ_qgrJRaPa6jLpIiLiJTVknVYprawwvDmyZTvnsYpZZCOj3i1YlDTcdZX3g8i3w7a8S4gp_1mIbspHTr7Ht34_GOJ07stL_jnuffAocyhMPQm0CT6O559P7Uvqo2GrKUI3fb7jPnoXQBdk6J6-i2Q2SFsJydKtqRXniYyUbpraBbZMdF3RSpUFOWvqL9oO3sco8K5cOCpJOPOhrjX7iQ"
-)
-
-const (
-	// baseURL       = "https://australia-southeast1-anz-x-xplore-staging-1bbe6e.cloudfunctions.net/xp-cf-xplore-api"
-	// baseURL    = "https://australia-southeast1-anz-x-xplore-np-4a74dd.cloudfunctions.net/xp-cf-xplore-api"
 	statusConnStr = "user=myuser password=mypassword dbname=controlstatus sslmode=disable"
 	codexConnStr  = "user=myuser password=mypassword dbname=codex sslmode=disable"
-	baseURL       = "https://australia-southeast1-anz-x-xplore-prod-44f597.cloudfunctions.net/xp-cf-xplore-api"
 	evidencePath  = "/api/v1/evidence"
 	acIDQuery     = `select internal_id from codex_acceptance_criterion where internal_id like 'CTOB%';`
+	assetIDQuery  = `select asset_id from codex_assets where status != 'Retired' and status != 'Reassigned' order by asset_id;`
 	assetsPath    = "/api/v1/assets"
 	gciPath       = "/api/v1/generic-control-instances/"
 )
@@ -53,20 +45,16 @@ type migrationResult struct {
 }
 
 func main() {
-	handler := slog.NewJSONHandler(os.Stdout, nil)
-	slog.SetDefault(slog.New(handler))
-
 	mapping := getDataFromCsv()
 	acIDMap := makeACIDMap(mapping)
 	acIDs := getIDsFromCodex(acIDQuery, "internal_id")
 	verifyMappingData(acIDMap, acIDs)
 
+	assetIDs := getIDsFromCodex(buildGetAssetsIdQuery(), "asset_id")
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 20) // Limit concurrency to 20
+	sem := make(chan struct{}, concurrencyLimits)
 
-	assetIDs := getIDsFromCodex(assetIDQuery, "asset_id")
-	slog.Info("start migrating evidences", slog.Any("assetIDs", assetIDs))
-
+	log.Printf("start migrating evidences: assetIDs=%v", assetIDs)
 	for _, assetID := range assetIDs {
 		sem <- struct{}{} // Acquire a slot
 		wg.Add(1)
@@ -78,15 +66,15 @@ func main() {
 	}
 
 	wg.Wait()
-	slog.Info("migration completed")
+	log.Println("migration completed")
 	exportMigrationDataToExcel()
 }
 
-func migrate(assetID string, processedMap map[string][]string) {
+func migrate(assetID string, acIDMap map[string][]string) {
 	client := &http.Client{}
 	evidenceCreated := 0
 	requiredCreate := 0
-	for sourceAC, targetACs := range processedMap {
+	for sourceAC, targetACs := range acIDMap {
 		evidences := readEvidences(assetID, sourceAC)
 		if len(evidences) == 0 {
 			continue
@@ -107,23 +95,19 @@ func migrate(assetID string, processedMap map[string][]string) {
 				updatedEvidence.ControlComponentId = targetAC
 				err := createEvidence(client, updatedEvidence)
 				if err != nil {
-					slog.Error("Error creating evidence", slog.Any("assetID", assetID), slog.Any("sourceAC", sourceAC), slog.Any("targetAC", targetAC), slog.String("error", err.Error()))
+					log.Printf("Error creating evidence: assetID=%s sourceAC=%s targetAC=%s error=%s", assetID, sourceAC, targetAC, err.Error())
 					migrationResults = append(migrationResults, result)
 					continue
 				}
 				evidenceCreated++
 				result.Succeed = true
 				migrationResults = append(migrationResults, result)
-				slog.Info("Evidence created", slog.Any("assetID", assetID), slog.Any("sourceAC", sourceAC), slog.Any("targetAC", targetAC))
+				log.Printf("Evidence created: assetID=%s sourceAC=%s targetAC=%s", assetID, sourceAC, targetAC)
 			}
 		}
 	}
 
-	slog.Info("evidence creation summary",
-		slog.String("assetID", assetID),
-		slog.Int("created", evidenceCreated),
-		slog.Int("required", requiredCreate),
-	)
+	log.Printf("evidence creation summary: assetID=%s created=%d required=%d", assetID, evidenceCreated, requiredCreate)
 }
 
 func getDataFromCsv() []migrationMapData {
@@ -160,7 +144,10 @@ func getDataFromCsv() []migrationMapData {
 func verifyMappingData(data map[string][]string, acIDs []string) {
 	// one evidence can be mapped to multiple tcl
 	// not more than one tcl evidence should be created
-	// ac must exist
+	// target ac must exist
+	if len(data) == 0 {
+		panic("no data found in the mapping file")
+	}
 	counter := make(map[string]int)
 	for _, targetACs := range data {
 		for _, targetAC := range targetACs {
@@ -173,9 +160,10 @@ func verifyMappingData(data map[string][]string, acIDs []string) {
 			}
 		}
 	}
-	slog.Info("mapping data is valid")
+	fmt.Println("mapping data is valid")
 }
 
+// readEvidences retrieves evidences for a given asset ID AC ID from local db.
 func readEvidences(assetID, acID string) []Evidence {
 	db, err := sqlx.Open("postgres", statusConnStr)
 	if err != nil {
@@ -199,7 +187,6 @@ ON
     e.generic_control_status_id = s.id
 WHERE 
     e.bot_id = ''
-  	AND ((e.updated_at >= '2025-05-05' or e.created_at >= '2025-05-05'))
     AND s.asset_id = $1 
     AND e.control_component_id = $2;
 `
@@ -237,7 +224,7 @@ func getIDsFromCodex(query, key string) []string {
 
 func createEvidence(client *http.Client, evidence Evidence) error {
 	// in case controls API crushes
-	url := baseURL + evidencePath
+	url := getEvidenceURL()
 
 	resp, err := sendPOSTRequest(client, url, evidence)
 	if err != nil {
@@ -277,11 +264,10 @@ func sendPOSTRequest[T any](client *http.Client, url string, payload T) (*http.R
 			return resp, nil
 		}
 
-		// Close the response body to avoid resource leaks
 		resp.Body.Close()
 
 		// Exponential backoff
-		slog.Info("retrying request", slog.Int("attempt", attempt+1))
+		log.Printf("retrying post request %d", attempt+1)
 		time.Sleep(time.Duration(attempt) * time.Second)
 	}
 
@@ -322,6 +308,7 @@ func getControlID(acID string) string {
 	return strings.Split(acID, ".")[0]
 }
 
+// makeACIDMap creates a mapping from source AC ID to target AC IDs.
 func makeACIDMap(data []migrationMapData) map[string][]string {
 	acIDMap := make(map[string][]string)
 	for _, item := range data {
@@ -342,7 +329,7 @@ func exportMigrationDataToExcel() {
 	} else {
 		f, err = excelize.OpenFile(filePath)
 		if err != nil {
-			slog.Error("failed to open Excel file", slog.String("error", err.Error()))
+			log.Printf("failed to open Excel file: %s", err.Error())
 		}
 	}
 	defer f.Close()
@@ -378,4 +365,21 @@ func exportMigrationDataToExcel() {
 	if err := f.SaveAs(filePath); err != nil {
 		slog.Error("failed to save Excel file")
 	}
+}
+
+func getEvidenceURL() string {
+	var baseURL string
+	switch env {
+	case "prod":
+		baseURL = "https://australia-southeast1-anz-x-xplore-prod-44f597.cloudfunctions.net/xp-cf-xplore-api"
+	case "staging":
+		baseURL = "https://australia-southeast1-anz-x-xplore-staging-1bbe6e.cloudfunctions.net/xp-cf-xplore-api"
+	default:
+		baseURL = "https://australia-southeast1-anz-x-xplore-np-4a74dd.cloudfunctions.net/xp-cf-xplore-api"
+	}
+	return baseURL + evidencePath
+}
+
+func buildGetAssetsIdQuery() string {
+	return fmt.Sprintf("SELECT asset_id FROM codex_assets WHERE status != 'Retired' AND status != 'Reassigned' ORDER BY asset_id LIMIT %d OFFSET %d;", rowLimits, startingRow-1)
 }

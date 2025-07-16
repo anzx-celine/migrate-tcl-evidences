@@ -3,7 +3,6 @@ module github.com/anzx-celine/migrate-tcl-evidences
 go 1.23.8
 
 require (
-	github.com/anzx/xplore-api/models/controls v1.34.1
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/xuri/excelize/v2 v2.9.0
